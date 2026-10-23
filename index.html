@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Triathlon Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one top row (time of day | race stopwatch | main Start), a Show dropdown, then a pivoted board: one row per step (Start, Swim, T1, Bike, T2, Run), one column per athlete. */
+:root {
+  --bg: #f3f5f6;
+  --panel: #ffffff;
+  --fg: #11191f;
+  --muted: #5d6b75;
+  --line: #d6dde1;
+  --accent: #0a6cff;
+  --on-accent: #ffffff;
+  --on-leg: #ffffff;
+  --swim: #0a7fc4;
+  --bike: #2e8b4f;
+  --run: #d4502a;
+  --trans: #8a6d00;
+  --done-bg: #e9eef1;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1418; --panel: #162026; --fg: #e8eef1; --muted: #8fa0aa; --line: #263540;
+    --accent: #5aa2ff; --on-accent: #08121c; --on-leg: #08121c; --swim: #4cb6f0; --bike: #5cc483; --run: #ff7d57; --trans: #e0be3c; --done-bg: #1c2a32;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1418; --panel: #162026; --fg: #e8eef1; --muted: #8fa0aa; --line: #263540;
+  --accent: #5aa2ff; --on-accent: #08121c; --on-leg: #08121c; --swim: #4cb6f0; --bike: #5cc483; --run: #ff7d57; --trans: #e0be3c; --done-bg: #1c2a32;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.4 var(--font-display); font-weight: 500;
+  padding-block: 16px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 1280px; margin: 0 auto; display: grid; gap: 14px; }
+button, select { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.hero { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
+.hero-left { display: grid; gap: 6px; justify-items: start; min-width: 0; }
+.hero-mid { display: grid; gap: 2px; justify-items: center; text-align: center; }
+.hero-right { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; min-width: 0; }
+.hero h1 { margin: 0; font-size: 14px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.wall { display: grid; gap: 0; }
+.wall-label, .stop-label { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.wall-time { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; font-size: clamp(22px, 4vw, 32px); color: var(--accent); }
+.time {
+  font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: clamp(40px, 9vw, 84px); line-height: 1; letter-spacing: -.02em;
+}
+.time small { font-size: .5em; color: var(--muted); }
+
+.toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.toolbar label { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.toolbar select {
+  background: var(--panel); color: var(--fg); border: 2px solid var(--line); border-radius: 6px;
+  padding: 8px 12px; font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+}
+.status { margin: 0; color: var(--muted); font-size: 18px; }
+.note { margin: 0; color: var(--run); font-size: 16px; }
+.note:empty { display: none; }
+
+.btn {
+  border: 2px solid var(--line); background: var(--panel); color: var(--fg);
+  border-radius: 6px; padding: 10px 18px; font-size: 18px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); padding: 12px 28px; font-size: 22px; }
+.btn.danger { color: var(--run); border-color: var(--run); }
+.btn.small { padding: 4px 10px; font-size: 14px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.confirm { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; font-size: 16px; }
+
+.board-wrap { overflow-x: auto; }
+.board { display: grid; gap: 10px; align-items: stretch; min-width: min-content; }
+.board [hidden] { display: none; }
+.corner { min-height: 1px; }
+.col-head, .rowlab { --c: var(--fg); }
+.rowlab[data-kind="start"] { --c: var(--accent); }
+.rowlab[data-kind="swim"] { --c: var(--swim); }
+.rowlab[data-kind="t1"], .rowlab[data-kind="t2"] { --c: var(--trans); }
+.rowlab[data-kind="bike"] { --c: var(--bike); }
+.rowlab[data-kind="run"] { --c: var(--run); }
+.cell[data-kind="start"] { --c: var(--accent); }
+.cell[data-kind="swim"] { --c: var(--swim); }
+.cell[data-kind="t1"], .cell[data-kind="t2"] { --c: var(--trans); }
+.cell[data-kind="bike"] { --c: var(--bike); }
+.cell[data-kind="run"] { --c: var(--run); }
+.rowlab {
+  display: flex; align-items: center; font-size: 22px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--c); border-left: 6px solid var(--c); padding-left: 10px;
+}
+
+.who {
+  background: var(--panel); border: 2px solid var(--line); border-radius: 6px; padding: 10px 12px;
+  display: grid; gap: 4px; align-content: center; justify-items: start; min-width: 0;
+}
+.who h2 { margin: 0; font-size: 30px; line-height: 1; text-transform: uppercase; letter-spacing: .03em; }
+.who .total { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); min-height: 1.3em; }
+.who .total b { color: var(--fg); }
+
+.cell {
+  background: var(--panel); border: 2px solid var(--line); border-radius: 6px; padding: 10px;
+  display: grid; gap: 8px; align-content: space-between; min-width: 0;
+}
+.cell[data-state="active"] { border-color: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 25%, transparent); }
+.cell[data-state="done"] { background: var(--done-bg); }
+.split { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; line-height: 1.1; }
+.split.small { font-size: 16px; }
+.split.empty { color: var(--muted); }
+.cum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); min-height: 1.2em; }
+.done-btn {
+  border: 0; border-radius: 6px; background: var(--c); color: var(--on-leg); padding: 10px 6px;
+  font-size: 17px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+}
+.done-btn:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+.cell[data-state="done"] .done-btn { display: none; }
+.edit-area { display: flex; }
+.edit-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
+.edit-in {
+  width: 8em; max-width: 100%; font: 600 15px var(--font-mono); font-variant-numeric: tabular-nums;
+  background: var(--bg); color: var(--fg); border: 2px solid var(--line); border-radius: 6px; padding: 4px 8px;
+}
+.edit-err { flex-basis: 100%; font-size: 13px; color: var(--run); }
+.edit-err:empty { display: none; }
+
+.log { background: var(--panel); border: 2px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.log summary { cursor: pointer; font-size: 20px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.log summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.log-body { display: grid; gap: 22px; margin-top: 14px; }
+.log-note { margin: 0; color: var(--muted); font-size: 16px; }
+.log-race { display: grid; gap: 8px; }
+.log-race h3 { margin: 0; font-size: 20px; letter-spacing: .03em; }
+.log-race h3 span { font-size: 14px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-left: 8px; }
+.table-wrap { overflow-x: auto; }
+.log table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; }
+.log th, .log td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.log th { font-family: var(--font-display); font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.log td:first-child { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
+.events { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); max-height: 220px; overflow-y: auto; }
+.events b { color: var(--fg); font-weight: 600; }
+.log-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.log textarea { width: 100%; min-height: 160px; font: 13px var(--font-mono); background: var(--bg); color: var(--fg); border: 2px solid var(--line); border-radius: 6px; padding: 8px; }
+
+@media (max-width: 720px) {
+  .hero { grid-template-columns: 1fr 1fr; grid-template-areas: "mid mid" "left right"; }
+  .hero-left { grid-area: left; }
+  .hero-mid { grid-area: mid; }
+  .hero-right { grid-area: right; }
+}
+@media (prefers-reduced-motion: no-preference) { .cell, .done-btn { transition: box-shadow .15s, background .15s; } }
+[hidden] { display: none !important; }
+body { margin: 0; }
+.gate { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.gate label { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.gate input { background: var(--panel); color: var(--fg); border: 2px solid var(--line); border-radius: 6px; padding: 8px 12px; font: 600 18px var(--font-mono); }
+</style>
+</head>
+<body>
+
+<main>
+  <form class="gate" id="gate" hidden>
+    <label for="code">Race code</label>
+    <input id="code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. wrtc-oct">
+    <button class="btn primary" type="submit">Join</button>
+  </form>
+  <section class="hero" aria-label="Clocks and main start">
+    <div class="hero-left">
+      <h1>Triathlon Tracker</h1>
+      <div class="wall" aria-label="Current time">
+        <span class="wall-label">Time of day</span>
+        <span class="wall-time" id="wall">--:--:--</span>
+      </div>
+    </div>
+    <div class="hero-mid">
+      <div class="stop-label">Race time</div>
+      <div class="time" id="clock" role="timer" aria-live="off">0:00:00<small>.0</small></div>
+    </div>
+    <div class="hero-right">
+      <button class="btn primary" id="startall" type="button" disabled>Start all</button>
+      <button class="btn danger small" id="reset" type="button" hidden>Reset race</button>
+      <span class="confirm" id="confirm" hidden>
+        <span>Clear this race for everyone?</span>
+        <button class="btn danger small" id="yes" type="button">Yes, reset</button>
+        <button class="btn small" id="no" type="button">Keep going</button>
+      </span>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <label for="who">Show</label>
+    <select id="who"></select>
+    <p class="status" id="status" role="status">Connecting to the live race...</p>
+  </div>
+  <p class="note" id="note" role="alert"></p>
+
+  <div class="board-wrap"><section class="board" id="board" aria-label="Athletes"></section></div>
+
+  <details class="log" id="log">
+    <summary>Race log (<span id="logcount">0</span>)</summary>
+    <div class="log-body">
+      <p class="log-note">Every start, done, undo, edit and reset is saved for everyone. Reset never clears it.</p>
+      <div class="log-tools">
+        <button class="btn small" id="copylog" type="button">Copy log as text</button>
+        <span class="log-note" id="copymsg" role="status"></span>
+      </div>
+      <textarea id="logtext" readonly hidden aria-label="Race log text"></textarea>
+      <div class="log-body" id="logbody"></div>
+    </div>
+  </details>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+(function () {
+  var LEGS = [
+    { kind: "swim", name: "Swim", btn: "Swim done" },
+    { kind: "t1",   name: "T1",   btn: "T1 done" },
+    { kind: "bike", name: "Bike", btn: "Bike done" },
+    { kind: "t2",   name: "T2",   btn: "T2 done" },
+    { kind: "run",  name: "Run",  btn: "Run done" }
+  ];
+  var PEOPLE = ["Berton", "Byron", "Josh", "Uttam", "Wanyu"];
+  var SELKEY = "triathlon-tracker-who";
+
+  // Shared data (db): meta/race {id,start}; athletes/<name> {start,marks[]}; races/<id> {start,endedAt,marks,starts}; events/<auto> {raceId,t,type,...}
+  var db = null, live = false, readOnly = false, confirming = false, editing = null;
+  var metaIn = false, athIn = false;
+  var sel = "all"; // "all" or one athlete's name; a per-viewer convenience kept in browser storage
+  try { var s0 = localStorage.getItem(SELKEY); if (s0 && PEOPLE.indexOf(s0) >= 0) sel = s0; } catch (e) {}
+  var state = { id: null, start: null, ath: {} };
+  PEOPLE.forEach(function (p) { state.ath[p] = { start: null, marks: [] }; });
+  var srv = { id: null, start: null, ath: {} }; // last values the server confirmed, restored if a save fails
+  var races = [], events = [];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var clock = $("clock"), statusEl = $("status"), noteEl = $("note"), board = $("board");
+  var startAllBtn = $("startall"), resetBtn = $("reset"), confirmBox = $("confirm"), whoSel = $("who");
+
+  function fmt(ms, tenths) {
+    if (ms < 0) ms = 0;
+    var t = Math.floor(ms / 100), d = t % 10, s = Math.floor(t / 10);
+    var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+    var out = h + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
+    return tenths ? out + "." + d : out;
+  }
+  function tod(ms) { return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }); }
+  function A(p) { return state.ath[p]; }
+  function started(p) { return state.id != null && A(p).start != null; }
+  function finished(p) { return started(p) && A(p).marks.length === LEGS.length; }
+  function allDone() { return PEOPLE.every(finished); }
+  function lastFinish() { return Math.max.apply(null, PEOPLE.map(function (p) { return A(p).marks[LEGS.length - 1]; })); }
+  function total(p) { return A(p).marks[LEGS.length - 1] - A(p).start; }
+  function canWrite() { return live && !readOnly; }
+  function setNote(msg) { noteEl.textContent = msg || ""; }
+  function targets() { return sel === "all" ? PEOPLE : [sel]; }
+
+  // ---- writes ----
+  function onWriteError(e) {
+    state.id = srv.id; state.start = srv.start; editing = null;
+    PEOPLE.forEach(function (p) { var s = srv.ath[p]; state.ath[p] = s ? { start: s.start, marks: s.marks.slice() } : { start: null, marks: [] }; });
+    if (e && (e.code === "invalid_argument" || e.code === "permission-denied")) {
+      readOnly = true;
+      setNote("Could not save: this race code is not allowed to write.");
+    } else setNote("Could not save that. Check your connection and try again.");
+    renderAll();
+  }
+  function guard(fn) { return Promise.resolve().then(fn).catch(onWriteError); }
+  function logEv(ev, raceId) {
+    return db.collection("events").add(Object.assign({ raceId: raceId || state.id, t: Date.now() }, ev));
+  }
+  function setAth(p, start, marks) { return db.doc("athletes/" + p).set({ start: start, marks: marks }); }
+  function ensureRace(t) {
+    if (state.id) return Promise.resolve(state.id);
+    var id = String(t);
+    state.id = id; state.start = t;
+    return db.doc("meta/race").set({ id: id, start: t })
+      .then(function () { return db.doc("races/" + id).set({ start: t, endedAt: null }); })
+      .then(function () { return id; });
+  }
+
+  function startAthlete(p) {
+    if (!canWrite() || started(p)) return;
+    var t = Date.now();
+    A(p).start = t; A(p).marks = []; renderAll();
+    guard(function () {
+      return ensureRace(t).then(function (id) {
+        return setAth(p, t, []).then(function () { return logEv({ type: "begin", athlete: p }, id); });
+      });
+    });
+  }
+  function startAll() {
+    if (!canWrite()) return;
+    var t = Date.now();
+    PEOPLE.forEach(function (p) { if (!started(p)) { A(p).start = t; A(p).marks = []; } });
+    renderAll();
+    guard(function () {
+      return ensureRace(t).then(function (id) {
+        var chain = Promise.resolve();
+        PEOPLE.forEach(function (p) { chain = chain.then(function () { return setAth(p, A(p).start, A(p).marks); }); });
+        return chain.then(function () { return logEv({ type: "startall" }, id); });
+      });
+    });
+  }
+  function startPrimary() { if (sel === "all") startAll(); else startAthlete(sel); }
+  function markDone(p, li) {
+    var a = A(p);
+    if (!canWrite() || !started(p) || li !== a.marks.length) return;
+    var now = Date.now(), id = state.id, st = a.start;
+    a.marks = a.marks.concat(now); renderAll();
+    var arr = a.marks.slice();
+    guard(function () {
+      return setAth(p, st, arr).then(function () { return logEv({ type: "done", athlete: p, leg: LEGS[li].name, at: now - st }, id); });
+    });
+  }
+  function undo(p) {
+    var a = A(p);
+    if (!canWrite() || !started(p)) return;
+    var id = state.id, st = a.start;
+    if (a.marks.length) {
+      var arr = a.marks.slice(), removed = arr.pop(), li = arr.length;
+      a.marks = arr; renderAll();
+      guard(function () {
+        return setAth(p, st, arr).then(function () { return logEv({ type: "undo", athlete: p, leg: LEGS[li].name, was: removed - st }, id); });
+      });
+    } else {
+      a.start = null; renderAll();
+      guard(function () {
+        return setAth(p, null, []).then(function () { return logEv({ type: "unstart", athlete: p }, id); });
+      });
+    }
+  }
+
+  // Changing one split moves every later mark by the same amount, so the other splits stay as recorded.
+  function parseTime(s) {
+    s = s.trim();
+    if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(s)) return null;
+    var parts = s.split(":").map(Number);
+    if (parts.slice(1).some(function (x) { return x >= 60; })) return null;
+    return Math.round(parts.reduce(function (a, x) { return a * 60 + x; }, 0) * 1000);
+  }
+  function openEdit(pi, li) {
+    if (!canWrite()) return;
+    var p = PEOPLE[pi], a = A(p);
+    editing = { pi: pi, li: li };
+    renderAll();
+    var prev = li === 0 ? a.start : a.marks[li - 1];
+    var input = $("in-" + pi + "-" + li);
+    input.value = fmt(a.marks[li] - prev, true);
+    $("err-" + pi + "-" + li).textContent = "";
+    input.focus(); input.select();
+  }
+  function saveEdit(pi, li) {
+    var p = PEOPLE[pi], a = A(p), err = $("err-" + pi + "-" + li);
+    var ms = parseTime($("in-" + pi + "-" + li).value);
+    if (ms == null) { err.textContent = "Use m:ss or h:mm:ss"; return; }
+    var prev = li === 0 ? a.start : a.marks[li - 1];
+    var delta = prev + ms - a.marks[li];
+    if (a.marks[a.marks.length - 1] + delta > Date.now()) { err.textContent = "Longer than the race so far"; return; }
+    var arr = a.marks.slice(), st = a.start, id = state.id;
+    for (var k = li; k < arr.length; k++) arr[k] += delta;
+    a.marks = arr; editing = null; renderAll();
+    guard(function () {
+      return setAth(p, st, arr).then(function () { return logEv({ type: "edit", athlete: p, leg: LEGS[li].name, from: ms - delta, to: ms }, id); });
+    });
+  }
+
+  function doReset() {
+    var id = state.id;
+    confirming = false;
+    if (!id || !canWrite()) { renderAll(); return; }
+    var st = state.start, marks = {}, starts = {};
+    PEOPLE.forEach(function (p) { marks[p] = A(p).marks.slice(); starts[p] = A(p).start; });
+    state.id = null; state.start = null;
+    PEOPLE.forEach(function (p) { state.ath[p] = { start: null, marks: [] }; });
+    editing = null; renderAll();
+    guard(function () {
+      return db.doc("races/" + id).set({ start: st, endedAt: Date.now(), marks: marks, starts: starts })
+        .then(function () { return logEv({ type: "reset" }, id); })
+        .then(function () { return db.doc("meta/race").set({ id: null, start: null }); })
+        .then(function () {
+          var chain = Promise.resolve();
+          PEOPLE.forEach(function (p) { chain = chain.then(function () { return setAth(p, null, []); }); });
+          return chain;
+        });
+    });
+  }
+
+  // ---- layout: steps down the side, athletes across the top ----
+  function el(tag, cls, attrs) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  var colEls = []; // colEls[pi] = every element in that athlete's column, so the Show menu can hide it
+
+  board.appendChild(el("div", "corner"));
+  PEOPLE.forEach(function (p, pi) {
+    var who = el("div", "who col-head", { "data-pi": pi });
+    who.innerHTML = '<h2>' + p + '</h2><div class="total" id="total-' + pi + '"></div>' +
+      '<button class="btn small" id="undo-' + pi + '" type="button" aria-label="Undo last step for ' + p + '">Undo</button>';
+    board.appendChild(who);
+    (colEls[pi] = colEls[pi] || []).push(who);
+  });
+
+  function addRow(kind, name, fillCell) {
+    var lab = el("div", "rowlab", { "data-kind": kind });
+    lab.textContent = name;
+    board.appendChild(lab);
+    PEOPLE.forEach(function (p, pi) {
+      var cell = fillCell(p, pi);
+      cell.setAttribute("data-pi", pi);
+      board.appendChild(cell);
+      (colEls[pi] = colEls[pi] || []).push(cell);
+    });
+  }
+
+  addRow("start", "Start", function (p, pi) {
+    var c = el("div", "cell", { "data-kind": "start", id: "scell-" + pi });
+    c.innerHTML = '<div class="times"><div class="split small empty" id="stime-' + pi + '">--</div><div class="cum" id="scum-' + pi + '"></div></div>' +
+      '<button class="done-btn" id="sbtn-' + pi + '" type="button" aria-label="Start ' + p + '">Start</button>';
+    return c;
+  });
+  LEGS.forEach(function (l, li) {
+    addRow(l.kind, l.name, function (p, pi) {
+      var c = el("div", "cell", { "data-kind": l.kind, id: "cell-" + pi + "-" + li });
+      c.innerHTML =
+        '<div class="times"><div class="split empty" id="split-' + pi + '-' + li + '">--:--</div><div class="cum" id="cum-' + pi + '-' + li + '"></div></div>' +
+        '<button class="done-btn" id="btn-' + pi + '-' + li + '" type="button" aria-label="' + l.btn + ' for ' + p + '">' + l.btn + '</button>' +
+        '<div class="edit-area" id="edit-' + pi + '-' + li + '" hidden>' +
+          '<button class="btn small" id="editbtn-' + pi + '-' + li + '" type="button" aria-label="Edit ' + l.name + ' time for ' + p + '">Edit</button>' +
+          '<form class="edit-form" id="form-' + pi + '-' + li + '" hidden>' +
+            '<input class="edit-in" id="in-' + pi + '-' + li + '" type="text" inputmode="decimal" autocomplete="off" placeholder="m:ss" aria-label="' + l.name + ' split for ' + p + '">' +
+            '<button class="btn small" type="submit">Save</button>' +
+            '<button class="btn small" id="cancel-' + pi + '-' + li + '" type="button">Cancel</button>' +
+            '<div class="edit-err" id="err-' + pi + '-' + li + '" role="alert"></div>' +
+          '</form></div>';
+      return c;
+    });
+  });
+
+  PEOPLE.forEach(function (p, pi) {
+    $("sbtn-" + pi).addEventListener("click", function () { startAthlete(p); });
+    $("undo-" + pi).addEventListener("click", function () { undo(p); });
+    LEGS.forEach(function (l, li) {
+      $("btn-" + pi + "-" + li).addEventListener("click", function () { markDone(p, li); });
+      $("editbtn-" + pi + "-" + li).addEventListener("click", function () { openEdit(pi, li); });
+      $("cancel-" + pi + "-" + li).addEventListener("click", function () { editing = null; renderAll(); });
+      $("form-" + pi + "-" + li).addEventListener("submit", function (ev) { ev.preventDefault(); saveEdit(pi, li); });
+      $("in-" + pi + "-" + li).addEventListener("keydown", function (ev) { if (ev.key === "Escape") { editing = null; renderAll(); } });
+    });
+  });
+
+  // Show menu
+  whoSel.innerHTML = '<option value="all">All athletes</option>' + PEOPLE.map(function (p) { return '<option value="' + p + '">' + p + '</option>'; }).join("");
+  whoSel.value = sel;
+  function applyFilter() {
+    var n = 0;
+    PEOPLE.forEach(function (p, pi) {
+      var show = sel === "all" || sel === p;
+      if (show) n++;
+      colEls[pi].forEach(function (e) { e.hidden = !show; });
+    });
+    board.style.gridTemplateColumns = "minmax(70px, auto) repeat(" + n + ", minmax(150px, 1fr))";
+  }
+  whoSel.addEventListener("change", function () {
+    sel = whoSel.value;
+    try { localStorage.setItem(SELKEY, sel); } catch (e) {}
+    editing = null; applyFilter(); renderAll();
+  });
+
+  startAllBtn.addEventListener("click", startPrimary);
+  resetBtn.addEventListener("click", function () { if (state.id) { confirming = true; renderAll(); $("no").focus(); } });
+  $("yes").addEventListener("click", doReset);
+  $("no").addEventListener("click", function () { confirming = false; renderAll(); });
+
+  // ---- rendering ----
+  function render() {
+    var active = state.id != null;
+    startAllBtn.textContent = sel === "all" ? "Start all" : "Start " + sel;
+    startAllBtn.hidden = confirming || targets().every(started);
+    startAllBtn.disabled = !canWrite();
+    resetBtn.hidden = !active || confirming;
+    resetBtn.disabled = !canWrite();
+    confirmBox.hidden = !confirming;
+
+    PEOPLE.forEach(function (p, pi) {
+      var a = A(p), st = started(p), n = a.marks.length;
+      $("undo-" + pi).hidden = !st;
+      $("undo-" + pi).disabled = !canWrite();
+
+      var sc = $("scell-" + pi), stime = $("stime-" + pi), scum = $("scum-" + pi), sbtn = $("sbtn-" + pi);
+      sc.dataset.state = st ? "done" : "waiting";
+      sbtn.disabled = !canWrite();
+      if (st) { stime.textContent = tod(a.start); stime.classList.remove("empty"); scum.textContent = "started"; }
+      else { stime.textContent = "--"; stime.classList.add("empty"); scum.textContent = ""; }
+
+      LEGS.forEach(function (l, li) {
+        var cell = $("cell-" + pi + "-" + li), split = $("split-" + pi + "-" + li), cum = $("cum-" + pi + "-" + li), btn = $("btn-" + pi + "-" + li);
+        var done = st && li < n, activeLeg = st && li === n;
+        cell.dataset.state = done ? "done" : activeLeg ? "active" : "waiting";
+        btn.disabled = !activeLeg || !canWrite();
+        if (editing && editing.pi === pi && editing.li === li && !done) editing = null;
+        var isEditing = !!editing && editing.pi === pi && editing.li === li;
+        $("edit-" + pi + "-" + li).hidden = !done;
+        $("editbtn-" + pi + "-" + li).hidden = isEditing;
+        $("editbtn-" + pi + "-" + li).disabled = !canWrite();
+        $("form-" + pi + "-" + li).hidden = !isEditing;
+        if (done) {
+          var prev = li === 0 ? a.start : a.marks[li - 1];
+          split.textContent = fmt(a.marks[li] - prev, true);
+          split.classList.remove("empty");
+          cum.textContent = "at " + fmt(a.marks[li] - a.start, false);
+        } else if (activeLeg) {
+          split.classList.remove("empty"); cum.textContent = "";
+        } else {
+          split.textContent = "--:--"; split.classList.add("empty"); cum.textContent = "";
+        }
+      });
+    });
+  }
+
+  function rankOf(p) {
+    var done = PEOPLE.filter(finished).sort(function (a, b) { return total(a) - total(b); });
+    return done.indexOf(p) + 1;
+  }
+  var ORD = ["", "1st", "2nd", "3rd", "4th", "5th"];
+
+  function tick() {
+    $("wall").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    var active = state.id != null && state.start != null;
+    var end = active ? (allDone() ? lastFinish() : Date.now()) : 0;
+    var el = active ? end - state.start : 0;
+    clock.innerHTML = fmt(el, false) + "<small>." + (Math.floor(el / 100) % 10) + "</small>";
+
+    PEOPLE.forEach(function (p, pi) {
+      var a = A(p), n = a.marks.length, t = $("total-" + pi);
+      if (started(p) && n < LEGS.length) {
+        var prev = n === 0 ? a.start : a.marks[n - 1];
+        $("split-" + pi + "-" + n).textContent = fmt(Date.now() - prev, true);
+      }
+      if (finished(p)) t.innerHTML = ORD[rankOf(p)] + ' · <b>' + fmt(total(p), true) + '</b>';
+      else if (started(p)) t.textContent = "On " + LEGS[n].name.toLowerCase();
+      else t.textContent = state.id ? "Waiting to start" : "";
+    });
+
+    if (!db) statusEl.textContent = gate.hidden ? "Live race unavailable" : "Enter the race code to join.";
+    else if (!live) statusEl.textContent = "Connecting to the live race...";
+    else if (state.id == null) statusEl.textContent = "Ready. Start everyone together or one athlete at a time.";
+    else if (allDone()) statusEl.textContent = "Everyone is across the line.";
+    else statusEl.textContent = PEOPLE.filter(finished).length + " of " + PEOPLE.length + " finished";
+  }
+  function renderAll() { render(); tick(); renderLog(); }
+
+  // ---- log ----
+  function describe(ev) {
+    var f = function (ms) { return fmt(ms, true); };
+    switch (ev.type) {
+      case "startall": return "Mass start";
+      case "begin": return ev.athlete + " started";
+      case "unstart": return ev.athlete + " start undone";
+      case "reset": return "Race reset";
+      case "done": return ev.athlete + " finished " + ev.leg + " at " + f(ev.at);
+      case "undo": return ev.athlete + " undid " + ev.leg + " (was at " + f(ev.was) + ")";
+      case "edit": return ev.athlete + " changed " + ev.leg + " split from " + f(ev.from) + " to " + f(ev.to);
+    }
+    return ev.type;
+  }
+  // Marks and start times for one race: live values for the current race, the saved snapshot for past ones.
+  function raceView(r) {
+    var marks = {}, starts = {};
+    PEOPLE.forEach(function (p) {
+      if (r.id === state.id) { if (A(p).start != null) { marks[p] = A(p).marks; starts[p] = A(p).start; } }
+      else if (r.starts && r.starts[p] != null) { marks[p] = (r.marks && r.marks[p]) || []; starts[p] = r.starts[p]; }
+    });
+    return { marks: marks, starts: starts, who: Object.keys(marks) };
+  }
+  function raceStatus(r, v) {
+    var complete = v.who.length > 0 && v.who.every(function (p) { return v.marks[p].length === LEGS.length; });
+    if (r.id === state.id) return complete && v.who.length === PEOPLE.length ? "finished" : "in progress";
+    return complete ? "finished, then reset" : "reset early";
+  }
+  function raceRows(v) {
+    return PEOPLE.filter(function (p) { return v.marks[p]; }).map(function (p) {
+      var m = v.marks[p], cells = [p];
+      LEGS.forEach(function (l, i) { cells.push(i < m.length ? fmt(m[i] - (i === 0 ? v.starts[p] : m[i - 1]), true) : "--"); });
+      cells.push(m.length === LEGS.length ? fmt(m[m.length - 1] - v.starts[p], true) : "--");
+      return cells;
+    });
+  }
+  function eventsOf(r) {
+    return events.filter(function (e) { return e.raceId === r.id; }).sort(function (a, b) { return a.t - b.t; });
+  }
+  function logText() {
+    var out = [];
+    races.forEach(function (r) {
+      var v = raceView(r);
+      out.push("RACE " + new Date(r.start).toLocaleString() + " (" + raceStatus(r, v) + ")");
+      out.push(["Athlete"].concat(LEGS.map(function (l) { return l.name; }), ["Total"]).join("\t"));
+      raceRows(v).forEach(function (c) { out.push(c.join("\t")); });
+      out.push("Events:");
+      eventsOf(r).forEach(function (ev) { out.push("  " + tod(ev.t) + "  " + describe(ev)); });
+      out.push("");
+    });
+    return out.join("\n");
+  }
+  function mk(tag, text, cls) {
+    var e = document.createElement(tag);
+    if (text != null) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+  function renderLog() {
+    var body = $("logbody");
+    body.textContent = "";
+    $("logcount").textContent = races.length;
+    if (!races.length) { body.appendChild(mk("p", "No races yet. The first one appears here when someone presses Start.", "log-note")); return; }
+    races.forEach(function (r) {
+      var v = raceView(r), box = mk("div", null, "log-race");
+      var h = mk("h3", new Date(r.start).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }));
+      h.appendChild(mk("span", raceStatus(r, v)));
+      box.appendChild(h);
+
+      var wrap = mk("div", null, "table-wrap"), tbl = mk("table"), thead = mk("thead"), hr = mk("tr");
+      ["Athlete"].concat(LEGS.map(function (l) { return l.name; }), ["Total"]).forEach(function (t) { hr.appendChild(mk("th", t)); });
+      thead.appendChild(hr); tbl.appendChild(thead);
+      var tb = mk("tbody");
+      raceRows(v).forEach(function (cells) {
+        var tr = mk("tr");
+        cells.forEach(function (c) { tr.appendChild(mk("td", c)); });
+        tb.appendChild(tr);
+      });
+      tbl.appendChild(tb); wrap.appendChild(tbl); box.appendChild(wrap);
+
+      var ul = mk("ul", null, "events");
+      eventsOf(r).forEach(function (ev) {
+        var li = mk("li");
+        li.appendChild(mk("b", tod(ev.t)));
+        li.appendChild(document.createTextNode("  " + describe(ev)));
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      body.appendChild(box);
+    });
+  }
+  $("copylog").addEventListener("click", function () {
+    var text = logText(), msg = $("copymsg"), ta = $("logtext");
+    function fallback() { ta.hidden = false; ta.value = text; ta.focus(); ta.select(); msg.textContent = "Copy the selected text."; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { ta.hidden = true; msg.textContent = "Copied."; }, fallback);
+    } else fallback();
+  });
+
+  // ---- connect ----
+  // Shared data lives in Firestore under rooms/<race code>/..., so the code is what keeps strangers out of a race.
+  var ROOMKEY = "triathlon-tracker-room";
+  var CODE_RE = /^[A-Za-z0-9_-]{4,64}$/;
+  function subError() { setNote("Lost the connection to the live race. Reload the page."); live = false; renderAll(); }
+  function connect(code) {
+    if (!window.firebase || !window.FIREBASE_CONFIG || !window.FIREBASE_CONFIG.projectId) { setNote("Firebase is not set up yet (firebase-config.js)."); renderAll(); return; }
+    firebase.initializeApp(window.FIREBASE_CONFIG);
+    var fs = firebase.firestore(), base = "rooms/" + code + "/";
+    db = { doc: function (p) { return fs.doc(base + p); }, collection: function (p) { return fs.collection(base + p); } };
+    function check() { live = metaIn && athIn; renderAll(); }
+    db.doc("meta/race").onSnapshot(function (s) {
+      var d = s.exists ? s.data() : {};
+      state.id = d.id || null; state.start = d.start || null;
+      srv.id = state.id; srv.start = state.start;
+      if (!state.id) PEOPLE.forEach(function (p) { state.ath[p] = { start: null, marks: [] }; });
+      metaIn = true; check();
+    }, subError);
+    db.collection("athletes").onSnapshot(function (q) {
+      q.docs.forEach(function (doc) {
+        if (PEOPLE.indexOf(doc.id) < 0) return;
+        var x = doc.data() || {};
+        state.ath[doc.id] = { start: x.start == null ? null : x.start, marks: Array.isArray(x.marks) ? x.marks.slice() : [] };
+        srv.ath[doc.id] = { start: state.ath[doc.id].start, marks: state.ath[doc.id].marks.slice() };
+      });
+      athIn = true; check();
+    }, subError);
+    db.collection("races").orderBy("start", "desc").limit(50).onSnapshot(function (q) {
+      races = q.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+      renderLog();
+    }, subError);
+    db.collection("events").orderBy("t", "desc").limit(1000).onSnapshot(function (q) {
+      events = q.docs.map(function (doc) { return doc.data(); });
+      renderLog();
+    }, subError);
+  }
+  var gate = $("gate");
+  function openRoom() {
+    var code = "";
+    try { code = decodeURIComponent(location.hash.slice(1)); } catch (e) {}
+    if (!code) { try { code = localStorage.getItem(ROOMKEY) || ""; } catch (e) {} }
+    code = code.trim();
+    if (!CODE_RE.test(code)) { gate.hidden = false; statusEl.textContent = "Enter the race code to join."; renderAll(); return; }
+    try { localStorage.setItem(ROOMKEY, code); } catch (e) {}
+    gate.hidden = true;
+    connect(code);
+  }
+  gate.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var c = $("code").value.trim();
+    if (!CODE_RE.test(c)) { setNote("Use 4 to 64 letters, numbers, - or _."); return; }
+    setNote("");
+    location.hash = c;
+    openRoom();
+  });
+
+  setInterval(tick, 100);
+  applyFilter();
+  renderAll();
+  openRoom();
+})();
+</script>
+</body>
+</html>

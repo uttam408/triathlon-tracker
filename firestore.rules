@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Everything for a race lives under rooms/<race code>; the code is the shared secret.
+    match /rooms/{room}/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
