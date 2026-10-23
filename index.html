@@ -230,10 +230,10 @@ body { margin: 0; }
 <script>
 (function () {
   var LEGS = [
-    { kind: "swim", name: "Swim", btn: "Swim done" },
-    { kind: "t1",   name: "T1",   btn: "T1 done" },
-    { kind: "bike", name: "Bike", btn: "Bike done" },
-    { kind: "t2",   name: "T2",   btn: "T2 done" },
+    { kind: "swim", name: "Swim", btn: "Swim done, T1 start" },
+    { kind: "t1",   name: "T1",   btn: "T1 done, Bike start" },
+    { kind: "bike", name: "Bike", btn: "Bike done, T2 start" },
+    { kind: "t2",   name: "T2",   btn: "T2 done, Run start" },
     { kind: "run",  name: "Run",  btn: "Run done" }
   ];
   var PEOPLE = ["Berton", "Byron", "Josh", "Uttam", "Wanyu"];
@@ -444,7 +444,7 @@ body { margin: 0; }
   addRow("start", "Start", function (p, pi) {
     var c = el("div", "cell", { "data-kind": "start", id: "scell-" + pi });
     c.innerHTML = '<div class="times"><div class="split small empty" id="stime-' + pi + '">--</div><div class="cum" id="scum-' + pi + '"></div></div>' +
-      '<button class="done-btn" id="sbtn-' + pi + '" type="button" aria-label="Start ' + p + '">Start</button>';
+      '<button class="done-btn" id="sbtn-' + pi + '" type="button" aria-label="Start ' + p + '">Swim start</button>';
     return c;
   });
   LEGS.forEach(function (l, li) {
