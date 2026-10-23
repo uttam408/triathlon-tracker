@@ -103,6 +103,8 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--accent); o
   color: var(--c); border-left: 6px solid var(--c); padding-left: 10px;
 }
 
+.rowlab { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
+.route { font-size: 14px; font-weight: 600; letter-spacing: .06em; text-transform: none; color: var(--accent); text-decoration: underline; }
 .who {
   background: var(--panel); border: 2px solid var(--line); border-radius: 6px; padding: 10px 12px;
   display: grid; gap: 4px; align-content: center; justify-items: start; min-width: 0;
@@ -235,6 +237,10 @@ body { margin: 0; }
     { kind: "run",  name: "Run",  btn: "Run done" }
   ];
   var PEOPLE = ["Berton", "Byron", "Josh", "Uttam", "Wanyu"];
+  var ROUTES = {
+    bike: { text: "Route map", href: "https://www.google.com/maps/dir/Pottruck+Health+and+Fitness+Center,+Philadelphia,+PA+19104/39.9550515,-75.1982373/39.9528536,-75.1800988/39.9677763,-75.183721/39.9502193,-75.1706455/39.9534055,-75.1966445/@39.9490214,-75.1783955,17.11z/data=!4m13!4m12!1m5!1m1!1s0x89c6c657613705ab:0x2a147bdf67555aad!2m2!1d-75.1969562!2d39.9538304!1m0!1m0!1m0!1m0!1m0!3e1" },
+    run: { text: "Route on Strava", href: "https://www.strava.com/routes/3537487046280765524" }
+  };
   var SELKEY = "triathlon-tracker-who";
 
   // Shared data (db): meta/race {id,start}; athletes/<name> {start,marks[]}; races/<id> {start,endedAt,marks,starts}; events/<auto> {raceId,t,type,...}
@@ -421,6 +427,11 @@ body { margin: 0; }
   function addRow(kind, name, fillCell) {
     var lab = el("div", "rowlab", { "data-kind": kind });
     lab.textContent = name;
+    if (ROUTES[kind]) {
+      var a = el("a", "route", { href: ROUTES[kind].href, target: "_blank", rel: "noopener" });
+      a.textContent = ROUTES[kind].text;
+      lab.appendChild(a);
+    }
     board.appendChild(lab);
     PEOPLE.forEach(function (p, pi) {
       var cell = fillCell(p, pi);
